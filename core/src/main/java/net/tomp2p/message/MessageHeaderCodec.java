@@ -44,14 +44,15 @@ public final class MessageHeaderCodec {
     private MessageHeaderCodec() {
     }
 
-    public static final int HEADER_SIZE = 58;
+    public static final int HEADER_SIZE = 59;
+    public static final int HEADER_EXTENSION_SIZE = 64;
 
     /**
      * Encodes a message object.
      * 
-     * The format looks as follows: 28bit p2p version - 4bit message type - 32bit message id - 8bit message command - 160bit
-     * sender id - 16bit sender tcp port - 16bit sender udp port - 160bit recipient id - 32bit content types - 8bit options. It total,
-     * the header is of size 58 bytes.
+     * The format looks as follows: 28bit p2p version - 4bit message type - 32bit message id - 8bit message command -
+     * 160bit sender id - 16bit sender tcp port - 16bit sender udp port - 160bit recipient id - 32bit content types -
+     * 8bit sender options - 8 bit message options. In total the header is of size 59 bytes.
      * 
      * @param buffer
      *            The buffer to encode to
@@ -69,17 +70,20 @@ public final class MessageHeaderCodec {
         buffer.writeShort((short) message.sender().udpPort()); // 33
         buffer.writeBytes(message.recipient().peerId().toByteArray()); // 53
         buffer.writeInt(encodeContentTypes(message.contentTypes())); // 57
-        // three bits for the message options, 5 bits for the sender options
-        buffer.writeByte((message.sender().options() << 3) | message.options()); // 58
+        buffer.writeByte(message.sender().options()); // 58
+        buffer.writeByte(message.options()); // 59
+        if(message.hasHeaderExtension()) {
+            buffer.writeBytes(message.headerExtension());
+        }
     }
 
     /**
      * Decodes a message object.
-     * 
-     * The format looks as follows: 28bit p2p version - 4bit message type - 32bit message id - 8bit message command - 160bit
-     * sender id - 16bit sender tcp port - 16bit sender udp port - 160bit recipient id - 32bit content types - 8bit options. It total,
-     * the header is of size 58 bytes.
-     * 
+     *
+     * The format looks as follows: 28bit p2p version - 4bit message type - 32bit message id - 8bit message command -
+     * 160bit sender id - 16bit sender tcp port - 16bit sender udp port - 160bit recipient id - 32bit content types -
+     * 8bit sender options - 8 bit message options. In total the header is of size 59 bytes.
+     *
      * @param buffer
      *            The buffer to decode from
      * @param recipientSocket
@@ -108,15 +112,14 @@ public final class MessageHeaderCodec {
         message.contentTypes(decodeContentTypes(contentTypes, message));
         // set the address as we see it, important for port forwarding
         // identification
-        final int options = buffer.readUnsignedByte();
-        // three bits for the message options, 5 bits for the sender options
-		message.options(options & 0x7);
-        final int senderOptions = options >>> 3;
-        final PeerAddress peerAddress = new PeerAddress(senderID, 
+        final int senderOptions = buffer.readUnsignedByte();
+        final PeerAddress peerAddress = new PeerAddress(senderID,
         		senderSocket.getAddress(), tcpPort, udpPort, senderOptions);
         message.sender(peerAddress);
         message.senderSocket(senderSocket);
         message.recipientSocket(recipientSocket);
+        final int messageOptions = buffer.readUnsignedByte();
+        message.options(messageOptions);
         return message;
     }
 

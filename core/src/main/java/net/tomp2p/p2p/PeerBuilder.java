@@ -42,6 +42,7 @@ import net.tomp2p.connection.PingBuilderFactory;
 import net.tomp2p.connection.PipelineFilter;
 import net.tomp2p.connection.Ports;
 import net.tomp2p.connection.SendBehavior;
+import net.tomp2p.message.MessageFilter;
 import net.tomp2p.p2p.builder.PingBuilder;
 import net.tomp2p.peers.LocalMap;
 import net.tomp2p.peers.Number160;
@@ -123,6 +124,8 @@ public class PeerBuilder {
 	private Random random = null;
 	private List<PeerInit> toInitialize = new ArrayList<PeerInit>(1);
 	private SendBehavior sendBehavior;
+	private Registration registration;
+	private MessageFilter messageFilter;
 
 	// enable / disable RPC/P2P/other
 	private boolean enableHandShakeRPC = true;
@@ -155,6 +158,18 @@ public class PeerBuilder {
 	public PeerBuilder(final KeyPair keyPair) {
 		this.keyPair = keyPair;
 		this.peerId = Utils.makeSHAHash(keyPair.getPublic().getEncoded());
+	}
+
+	/**
+	 * Creates a peer builder with a provided registration.
+	 *
+	 * @param registration
+	 *            The registration
+	 */
+	public PeerBuilder(final Registration registration) {
+		this.keyPair = registration.getKeyPair();
+		this.peerId = registration.getPeerId();
+		this.registration = registration;
 	}
 
 	/**
@@ -239,7 +254,8 @@ public class PeerBuilder {
 		final Peer peer = new Peer(p2pID, peerId, peerCreator);
 
 		PeerBean peerBean = peerCreator.peerBean();
-		
+
+
 		LocalMap localMap = new LocalMap(peerId);
 		peerBean.localMap(localMap);
 		peerBean.addPeerStatusListener(localMap);
@@ -250,6 +266,8 @@ public class PeerBuilder {
 
 		peerBean.peerMap(peerMap);
 		peerBean.keyPair(keyPair);
+		peerBean.registration(registration);
+		connectionBean.dispatcher().setMessageFilter(messageFilter);
 
 		if (bloomfilterFactory == null) {
 			peerBean.bloomfilterFactory(new DefaultBloomfilterFactory());
@@ -663,6 +681,39 @@ public class PeerBuilder {
 		return sendBehavior;
 	}
 
+	/**
+	 * Set the registration.
+	 * @param registration the completed registration of the peer
+	 * @return This class
+	 */
+	public PeerBuilder registration(Registration registration) {
+		this.registration = registration;
+		return this;
+	}
+
+	/**
+	 * @return the {@link Registration}
+	 */
+	public Registration registration() {
+		return registration;
+	}
+
+	/**
+	 * Set the message filter of the dispatcher.
+	 * @param messageFilter implemented {@link MessageFilter}
+	 * @return This class
+	 */
+	public PeerBuilder messageFilter(MessageFilter messageFilter) {
+		this.registration = registration;
+		return this;
+	}
+
+	/**
+	 * @return the {@link MessageFilter}
+	 */
+	public MessageFilter messageFilter() {
+		return messageFilter;
+	}
 	/**
 	 * The default filter is no filter, just return the same array.
 	 * 
