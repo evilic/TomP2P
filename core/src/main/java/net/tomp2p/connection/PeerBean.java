@@ -57,7 +57,7 @@ public class PeerBean {
     private int holePNumberOfHoles;
     private int holePNumberOfPunches;
     private LocalMap localMap;
-    private Registration registration;
+    private Registration registration = null;
 
 	/**
 	 * This map is used for all open PeerConnections which are meant to stay

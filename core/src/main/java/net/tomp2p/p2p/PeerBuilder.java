@@ -245,9 +245,9 @@ public class PeerBuilder {
 		
 		final PeerCreator peerCreator;
 		if (masterPeer != null) {
-			peerCreator = new PeerCreator(masterPeer.peerCreator(), peerId, keyPair);
+			peerCreator = new PeerCreator(masterPeer.peerCreator(), peerId, keyPair, registration);
 		} else {
-			peerCreator = new PeerCreator(p2pID, peerId, keyPair, channelServerConfiguration,
+			peerCreator = new PeerCreator(p2pID, peerId, keyPair, registration, channelServerConfiguration,
 			        channelClientConfiguration, scheduledExecutorService, sendBehavior);
 		}
 
@@ -266,7 +266,6 @@ public class PeerBuilder {
 
 		peerBean.peerMap(peerMap);
 		peerBean.keyPair(keyPair);
-		peerBean.registration(registration);
 		connectionBean.dispatcher().setMessageFilter(messageFilter);
 
 		if (bloomfilterFactory == null) {
@@ -704,7 +703,7 @@ public class PeerBuilder {
 	 * @return This class
 	 */
 	public PeerBuilder messageFilter(MessageFilter messageFilter) {
-		this.registration = registration;
+		this.messageFilter = messageFilter;
 		return this;
 	}
 

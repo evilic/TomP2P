@@ -325,6 +325,17 @@ public class TestMessage {
 	}
 
 	@Test
+	public void testEncodeDecode8() throws Exception {
+		Message m1 = Utils2.createDummyMessage();
+		byte[] registration = new byte[64];
+		new Random().nextBytes(registration);
+		m1.headerExtension(registration);
+		m1.hasHeaderExtension(true);
+		Message m2 = encodeDecode(m1);
+		compareMessage(m1, m2);
+	}
+
+	@Test
 	public void testNumber160Conversion() {
 		Number160 i1 = new Number160(
 				"0x9908836242582063284904568868592094332017");
@@ -474,8 +485,8 @@ public class TestMessage {
         psa.add(new PeerSocketAddress(InetAddress.getByName("192.168.230.232"), RND.nextInt(BIT_16),
                 RND.nextInt(BIT_16)));
         PeerAddress pa3 = new PeerAddress(new Number160("0x657435a424444522456"), new PeerSocketAddress(
-                InetAddress.getByName("192.168.230.236"), RND.nextInt(BIT_16), RND.nextInt(BIT_16)), true, true, true, true, false,
-                psa);
+                InetAddress.getByName("192.168.230.236"), RND.nextInt(BIT_16), RND.nextInt(BIT_16)), true, true, true,
+		        true, false, null, psa);
         
         Message m1 = Utils2.createDummyMessage();
         Collection<PeerAddress> tmp = new ArrayList<PeerAddress>();
@@ -502,8 +513,8 @@ public class TestMessage {
         psa.add(new PeerSocketAddress(InetAddress.getByName("192.168.230.232"), RND.nextInt(BIT_16),
                 RND.nextInt(BIT_16)));
         PeerAddress pa3 = new PeerAddress(new Number160("0x657435a424444522456"), new PeerSocketAddress(
-                InetAddress.getByName("192.168.230.236"), RND.nextInt(BIT_16), RND.nextInt(BIT_16)), true, true, true, true, true,
-                psa);
+                InetAddress.getByName("192.168.230.236"), RND.nextInt(BIT_16), RND.nextInt(BIT_16)), true, true, true,
+		        true, true, null, psa);
         
         Message m1 = Utils2.createDummyMessage();
         Collection<PeerAddress> tmp = new ArrayList<PeerAddress>();

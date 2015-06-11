@@ -28,6 +28,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 
+import net.tomp2p.p2p.Registration;
 import net.tomp2p.utils.Utils;
 
 /**
@@ -37,7 +38,7 @@ import net.tomp2p.utils.Utils;
  * <pre>
  * 20 bytes - Number160
  * 2 bytes - Header 
- *  - 1 byte options: IPv6, firewalled UDP, firewalled TCP, is relayed
+ *  - 1 byte options: IPv6, firewalled UDP, firewalled TCP, is relayed, has registration
  *  - 1 byte relays:
  *    - first 3 bits: number of relays (max 5.)
  *    - second 5 bits: if the 5 relays are IPv6 (bit set) or not (no bit set)
@@ -48,13 +49,14 @@ import net.tomp2p.utils.Utils;
  *  - 2 bytes - TCP port
  *  - 2 bytes - UDP port
  *  - 4 or 16 bytes - Inet Address
+ * 0 or 64 bytes - encoded registration reference
  * </pre>
  * 
  * @author Thomas Bocek
  */
 public final class PeerAddress implements Comparable<PeerAddress>, Serializable {
 
-    public static final int MAX_SIZE = 142;
+    public static final int MAX_SIZE = 206;
     public static final int MIN_SIZE = 30;
     private static final long serialVersionUID = -1316622724169272306L;
 
@@ -67,6 +69,8 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
     private static final int SLOW = 16;
     // indicates the peer forwarded the ports either manually or with UPNP
     private static final int PORT_FORWARDING = 32;
+    // indicates that peer address includes registration reference
+    private static final int BITCOIN_REGISTRATION = 64;
 
     // network information
     private final Number160 peerId;
@@ -79,6 +83,10 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
     private final boolean relayed;
     private final boolean slow;
     private final boolean portForwarding;
+
+    // registration information
+    private final boolean hasRegistration;
+    private final byte[] registration;
 
     // we can make the hash final as it never changes, and this class is used
     // multiple times in maps. A new peer is always added to the peermap, so
@@ -104,6 +112,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
     private static final int HEADER_SIZE = 2;
     // count both ports, UDP and TCP
     private static final int PORTS_SIZE = 4;
+    private static final int REGISTRATION_BYTE_SIZE = 64;
 
     //TODO: make integrate this
     private PeerSocketAddress internalPeerSocketAddress;
@@ -114,7 +123,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
     
 
     /**
-     * Creates a peer address, where the byte array has to be in the rigth format and in the right size. The new
+     * Creates a peer address, where the byte array has to be in the right format and in the right size. The new
      * offset can be accessed with offset().
      * 
      * @param me
@@ -144,6 +153,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
         this.relayed = (options & RELAYED) > 0;
         this.slow = (options & SLOW) > 0;
         this.portForwarding = (options & PORT_FORWARDING) > 0;
+        this.hasRegistration = (options & BITCOIN_REGISTRATION) > 0;
         final int relays = me[offset++] & Utils.MASK_FF;
         // first: three bits are the size 1,2,4
         // 000 means no relays
@@ -176,6 +186,13 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
         } else {
             this.peerSocketAddresses = EMPTY_PEER_SOCKET_ADDRESSES;
         }
+        if(this.hasRegistration) {
+            this.registration = new byte[REGISTRATION_BYTE_SIZE];
+            System.arraycopy(me, offset, this.registration, 0, REGISTRATION_BYTE_SIZE);
+            offset += REGISTRATION_BYTE_SIZE;
+        } else {
+            this.registration = null;
+        }
         this.size = offset - initialOffset;
         this.offset = offset;
         this.hashCode = peerId.hashCode();
@@ -199,6 +216,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
         this.relayed = (options & RELAYED) > 0;
         this.slow = (options & SLOW) > 0;
         this.portForwarding = (options & PORT_FORWARDING) > 0;
+        this.hasRegistration = (options & BITCOIN_REGISTRATION) > 0;
         final int relays = channelBuffer.readUnsignedByte();
         // first: three bits are the size 1,2,4
         // 000 means no relays
@@ -227,6 +245,14 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
             }
         } else {
             this.peerSocketAddresses = EMPTY_PEER_SOCKET_ADDRESSES;
+        }
+
+        if (hasRegistration) {
+            byte[] reg = new byte[64];
+            channelBuffer.readBytes(reg);
+            this.registration = reg;
+        } else {
+            this.registration = null;
         }
 
         this.size = channelBuffer.readerIndex() - readerIndex;
@@ -277,7 +303,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress(final Number160 id, final PeerSocketAddress peerSocketAddress,
             final boolean firewalledTCP, final boolean firewalledUDP, final boolean isRelayed,
-            boolean isSlow, boolean portForwarding, final Collection<PeerSocketAddress> peerSocketAddresses) {
+            boolean isSlow, boolean portForwarding, byte[] registration, final Collection<PeerSocketAddress> peerSocketAddresses) {
         this.peerId = id;
         int size = Number160.BYTE_ARRAY_SIZE;
         this.peerSocketAddress = peerSocketAddress;
@@ -309,6 +335,13 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
             size += psa.size();
             index++;
         }
+        this.registration = registration;
+        if(registration == null) {
+            this.hasRegistration = false;
+        } else {
+            this.hasRegistration = true;
+            size += REGISTRATION_BYTE_SIZE;
+        }
         this.size = size;
         // unused here
         this.offset = -1;
@@ -328,7 +361,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress(final Number160 peerId, final InetAddress inetAddress, final int tcpPort,
             final int udpPort) {
-        this(peerId, new PeerSocketAddress(inetAddress, tcpPort, udpPort), false, false, false, false, false, EMPTY_PEER_SOCKET_ADDRESSES);
+        this(peerId, new PeerSocketAddress(inetAddress, tcpPort, udpPort), false, false, false, false, false, null, EMPTY_PEER_SOCKET_ADDRESSES);
     }
 
     /**
@@ -348,7 +381,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
     public PeerAddress(final Number160 id, final InetAddress inetAddress, final int tcpPort,
             final int udpPort, final int options) {
         this(id, new PeerSocketAddress(inetAddress, tcpPort, udpPort), isFirewalledTCP(options),
-                isFirewalledUDP(options), isRelay(options), isSlow(options), isPortForwarding(options), EMPTY_PEER_SOCKET_ADDRESSES);
+                isFirewalledUDP(options), isRelay(options), isSlow(options), isPortForwarding(options), null, EMPTY_PEER_SOCKET_ADDRESSES);
     }
     
     /**
@@ -433,7 +466,10 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
         for (PeerSocketAddress psa : peerSocketAddresses) {
             newOffset = psa.toByteArray(me, newOffset);
         }
-
+        if(registration != null) {
+            System.arraycopy(registration, 0, me, newOffset, REGISTRATION_BYTE_SIZE);
+            newOffset += REGISTRATION_BYTE_SIZE;
+        }
         return newOffset;
     }
     
@@ -503,6 +539,9 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
         }
         if(portForwarding) {
         	result |= PORT_FORWARDING;
+        }
+        if(hasRegistration) {
+            result |= BITCOIN_REGISTRATION;
         }
         return result;
     }
@@ -630,7 +669,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress changeRelayed(final boolean isRelayed) {
         return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, isRelayed, slow, portForwarding,
-                peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
     
     /**
@@ -642,12 +681,12 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress changeSlow(final boolean isSlow) {
         return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, relayed, isSlow, portForwarding,
-                peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
     
     public PeerAddress changePortForwarding(final boolean portForwarding) {
         return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, relayed, slow, portForwarding,
-                peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
 
     /**
@@ -659,7 +698,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress changeFirewalledUDP(final boolean firewalledUDP) {
         return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, relayed, slow, portForwarding,
-                peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
 
     /**
@@ -671,7 +710,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress changeFirewalledTCP(final boolean firewalledTCP) {
         return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, relayed, slow, portForwarding,
-                peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
 
     /**
@@ -685,7 +724,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress changePorts(final int tcpPort, final int udpPort) {
         return new PeerAddress(peerId, new PeerSocketAddress(peerSocketAddress.inetAddress(), tcpPort,
-                udpPort), firewalledTCP, firewalledUDP, relayed, slow, portForwarding, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                udpPort), firewalledTCP, firewalledUDP, relayed, slow, portForwarding, null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
 
     /**
@@ -697,7 +736,7 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress changeAddress(final InetAddress inetAddress) {
         return new PeerAddress(peerId, new PeerSocketAddress(inetAddress, peerSocketAddress.tcpPort(),
-                peerSocketAddress.udpPort()), firewalledTCP, firewalledUDP, relayed, slow, portForwarding, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                peerSocketAddress.udpPort()), firewalledTCP, firewalledUDP, relayed, slow, portForwarding, null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
 
     /**
@@ -709,19 +748,23 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
      */
     public PeerAddress changePeerId(final Number160 peerId) {
         return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, relayed, slow, portForwarding,
-                peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
-    
+
     public PeerAddress changePeerSocketAddresses(Collection<PeerSocketAddress> peerSocketAddresses) {
         return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, relayed, slow, portForwarding,
-                peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
     
     public PeerAddress changePeerSocketAddress(PeerSocketAddress peerSocketAddress) {
     	return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, relayed, slow, portForwarding,
-                peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+                null, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
     }
 
+    public PeerAddress changeRegistration(final byte[] registration) {
+        return new PeerAddress(peerId, peerSocketAddress, firewalledTCP, firewalledUDP, relayed, slow, portForwarding,
+                registration, peerSocketAddresses).internalPeerSocketAddress(internalPeerSocketAddress);
+    }
     /**
      * @return The relay peers
      */
@@ -788,6 +831,10 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
    	 	return ((options & Utils.MASK_FF) & PORT_FORWARDING) > 0;
     }
 
+    private static boolean hasRegistration(final int options) {
+        return ((options & Utils.MASK_FF) & BITCOIN_REGISTRATION) > 0;
+    }
+
     /**
      * Calculates the size based on the two header bytes.
      * 
@@ -830,6 +877,10 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
                 size += Utils.IPV4_BYTES;
             }
         }
+        //check for registration
+        if (hasRegistration(options)) {
+            size += REGISTRATION_BYTE_SIZE;
+        }
         return size;
     }
 
@@ -845,4 +896,8 @@ public final class PeerAddress implements Comparable<PeerAddress>, Serializable 
 		this.internalPeerSocketAddress = internalPeerSocketAddress;
 		return this;
 	}
+
+    public byte[] getRegistration() {
+        return registration;
+    }
 }

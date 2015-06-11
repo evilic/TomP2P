@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 
 import net.tomp2p.futures.BaseFutureAdapter;
 import net.tomp2p.futures.FutureDone;
+import net.tomp2p.p2p.Registration;
 import net.tomp2p.peers.Number160;
 import net.tomp2p.peers.PeerAddress;
 import net.tomp2p.peers.PeerSocketAddress;
@@ -72,6 +73,8 @@ public class PeerCreator {
 	 *            The id of this peer
 	 * @param keyPair
 	 *            The key pair or null
+	 * @param registration
+	 *            The registration or null
 	 * @param channelServerConfiguration
 	 *            The server configuration to create the channel server that is
 	 *            used for listening for incoming connections
@@ -84,16 +87,21 @@ public class PeerCreator {
 	 * @throws IOException
 	 *            If the startup of listening to connections failed
 	 */
-	public PeerCreator(final int p2pId, final Number160 peerId, final KeyPair keyPair,
+	public PeerCreator(final int p2pId, final Number160 peerId, final KeyPair keyPair, final Registration registration,
 	        final ChannelServerConfiguration channelServerConfiguration,
 	        final ChannelClientConfiguration channelClientConfiguration,
 	        final ScheduledExecutorService timer, SendBehavior sendBehavior) throws IOException {
 		//peer bean
 		peerBean = new PeerBean(keyPair);
-		PeerAddress self = findPeerAddress(peerId, channelClientConfiguration, channelServerConfiguration);
+		byte[] reg = null;
+		if(registration != null) {
+			reg = registration.encode();
+		}
+		PeerAddress self = findPeerAddress(peerId, channelClientConfiguration, channelServerConfiguration, reg);
 		peerBean.serverPeerAddress(self);
 		LOG.info("Visible address to other peers: {}", self);
-		
+		peerBean.registration(registration);
+
 		//start server
 		workerGroup = new NioEventLoopGroup(0, new DefaultThreadFactory(ConnectionBean.THREAD_NAME
 		        + "worker-client/server - "));
@@ -119,14 +127,20 @@ public class PeerCreator {
 	 *            The id of this peer
 	 * @param keyPair
 	 *            The key pair or null
+	 * @param registration
+	 *            completed registration or null
 	 */
-	public PeerCreator(final PeerCreator parent, final Number160 peerId, final KeyPair keyPair) {
+	public PeerCreator(final PeerCreator parent, final Number160 peerId, final KeyPair keyPair, final Registration registration) {
 		parent.childConnections.add(this);
 		this.workerGroup = parent.workerGroup;
 		this.bossGroup = parent.bossGroup;
 		this.connectionBean = parent.connectionBean;
 		this.peerBean = new PeerBean(keyPair);
 		PeerAddress self = parent.peerBean().serverPeerAddress().changePeerId(peerId);
+		if(registration != null) {
+			this.peerBean.registration(registration);
+			self = self.changeRegistration(registration.encode());
+		}
 		this.peerBean.serverPeerAddress(self);
 		this.master = false;
 	}
@@ -217,7 +231,7 @@ public class PeerCreator {
 	 */
 	private static PeerAddress findPeerAddress(final Number160 peerId,
 	        final ChannelClientConfiguration channelClientConfiguration,
-	        final ChannelServerConfiguration channelServerConfiguration) throws IOException {
+	        final ChannelServerConfiguration channelServerConfiguration, final byte[] registration) throws IOException {
 		final DiscoverResults discoverResults = DiscoverNetworks.discoverInterfaces(
 				channelClientConfiguration.bindings());
 		final String status = discoverResults.status();
@@ -232,7 +246,7 @@ public class PeerCreator {
 		final PeerSocketAddress peerSocketAddress = new PeerSocketAddress(outsideAddress, channelServerConfiguration.
 				ports().tcpPort(), channelServerConfiguration.ports().udpPort());
 		final PeerAddress self = new PeerAddress(peerId, peerSocketAddress,
-		        channelServerConfiguration.isBehindFirewall(), channelServerConfiguration.isBehindFirewall(), false, false, false,
+		        channelServerConfiguration.isBehindFirewall(), channelServerConfiguration.isBehindFirewall(), false, false, false, registration,
 		        PeerAddress.EMPTY_PEER_SOCKET_ADDRESSES);
 		return self;
 	}
